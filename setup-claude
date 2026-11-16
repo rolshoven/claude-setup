@@ -5,7 +5,8 @@ A bundle is a directory under bundles/ containing a bundle.json manifest:
 
     {
       "description": "One line shown by --list",
-      "files":    { "<path in bundle>": "<path under the claude dir>" },
+      "includes": [ "<other bundle installed along with this one>" ],
+      "files":   { "<path in bundle>": "<path under the claude dir>" },
       "settings": { ...fragment merged into settings.json... }
     }
 
@@ -36,6 +37,25 @@ def load_bundles():
         except json.JSONDecodeError as e:
             sys.exit(f"error: {manifest} is not valid JSON: {e}")
     return bundles
+
+
+def resolve(names, bundles):
+    """Expand "includes" so each bundle appears once, after what it includes."""
+    ordered = []
+
+    def visit(name, chain):
+        if name in chain:
+            sys.exit(f"error: include cycle: {' -> '.join(chain + [name])}")
+        if name not in bundles:
+            sys.exit(f"error: bundle '{chain[-1]}' includes unknown bundle '{name}'")
+        for dep in bundles[name].get("includes", []):
+            visit(dep, chain + [name])
+        if name not in ordered:
+            ordered.append(name)
+
+    for name in names:
+        visit(name, [])
+    return ordered
 
 
 def display_dir(claude_dir):
@@ -136,6 +156,8 @@ def main():
         sys.exit(f"error: unknown bundle(s): {', '.join(unknown)}\n"
                  f"available: {', '.join(bundles)}")
 
+    selected = resolve(selected, bundles)
+
     claude_dir = args.claude_dir.expanduser().resolve()
     settings_path = claude_dir / "settings.json"
     settings = {}
@@ -147,7 +169,7 @@ def main():
                      f"fix it first, nothing was changed")
     original = copy.deepcopy(settings)
 
-    for name in dict.fromkeys(selected):
+    for name in selected:
         bundle = bundles[name]
         print(f"[{name}]")
         install_files(name, bundle, claude_dir, args.dry_run, args.force)

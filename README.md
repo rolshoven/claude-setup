@@ -35,7 +35,7 @@ and can be changed with `--claude-dir`.
 | Bundle | What it does |
 | --- | --- |
 | `protect-env` | Deny rules for `.env` files plus a `PreToolUse` hook on `Read`/`Grep` that blocks any `.env*` file except `.env.example` / `.sample` / `.template`. |
-| `protect-secrets` | Deny rules for `*.pem`, `*.key` and `~/.ssh/**`. |
+| `protect-secrets` | Everything in `protect-env`, plus deny rules for `*.pem`, `*.key` and `~/.ssh/**`. |
 
 ## Adding a bundle
 
@@ -44,6 +44,7 @@ Create `bundles/<name>/bundle.json`:
 ```json
 {
   "description": "One line shown by --list",
+  "includes": ["protect-env"],
   "files": {
     "hooks/my-hook.py": "hooks/my-hook.py"
   },
@@ -62,11 +63,12 @@ Create `bundles/<name>/bundle.json`:
 }
 ```
 
+- `includes` lists other bundles that are installed along with this one.
 - `files` maps a path inside the bundle directory to a path under the Claude
   config directory. File modes are preserved.
 - `settings` is a fragment merged into `settings.json`.
 - `{{CLAUDE_DIR}}` in settings strings is replaced with the target directory
   (`~/.claude` by default).
 
-Both keys are optional; `--all` picks up every directory under `bundles/`
+All keys are optional; `--all` picks up every directory under `bundles/`
 automatically.

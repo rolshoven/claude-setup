@@ -1,5 +1,6 @@
 {
-  "description": "Deny reading private keys and SSH material (*.pem, *.key, ~/.ssh)",
+  "description": "Block reading secrets: .env files (via protect-env), private keys (*.pem, *.key) and ~/.ssh",
+  "includes": ["protect-env"],
   "settings": {
     "permissions": {
       "deny": [
