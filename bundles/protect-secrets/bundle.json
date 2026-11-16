@@ -1,0 +1,12 @@
+{
+  "description": "Deny reading private keys and SSH material (*.pem, *.key, ~/.ssh)",
+  "settings": {
+    "permissions": {
+      "deny": [
+        "Read(*.pem)",
+        "Read(*.key)",
+        "Read(~/.ssh/**)"
+      ]
+    }
+  }
+}

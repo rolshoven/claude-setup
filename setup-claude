@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Install named bundles of Claude Code configuration into ~/.claude.
+
+A bundle is a directory under bundles/ containing a bundle.json manifest:
+
+    {
+      "description": "One line shown by --list",
+      "files":    { "<path in bundle>": "<path under the claude dir>" },
+      "settings": { ...fragment merged into settings.json... }
+    }
+
+Merging never removes or overwrites what is already in settings.json:
+objects are merged key by key, list items are appended only when missing,
+and a conflicting scalar is kept as-is (with a warning) unless --force.
+Running the installer twice is a no-op.
+"""
+import argparse
+import copy
+import filecmp
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+BUNDLES = REPO / "bundles"
+PLACEHOLDER = "{{CLAUDE_DIR}}"
+
+
+def load_bundles():
+    bundles = {}
+    for manifest in sorted(BUNDLES.glob("*/bundle.json")):
+        try:
+            bundles[manifest.parent.name] = json.loads(manifest.read_text())
+        except json.JSONDecodeError as e:
+            sys.exit(f"error: {manifest} is not valid JSON: {e}")
+    return bundles
+
+
+def display_dir(claude_dir):
+    """Path as written into settings.json: ~-relative when under $HOME."""
+    try:
+        return "~/" + str(claude_dir.relative_to(Path.home()))
+    except ValueError:
+        return str(claude_dir)
+
+
+def substitute(value, claude_dir_str):
+    if isinstance(value, str):
+        return value.replace(PLACEHOLDER, claude_dir_str)
+    if isinstance(value, list):
+        return [substitute(v, claude_dir_str) for v in value]
+    if isinstance(value, dict):
+        return {k: substitute(v, claude_dir_str) for k, v in value.items()}
+    return value
+
+
+def merge(target, fragment, force, path=""):
+    """Merge fragment into target in place. Returns a list of change notes."""
+    notes = []
+    for key, value in fragment.items():
+        where = f"{path}.{key}" if path else key
+        if key not in target:
+            target[key] = copy.deepcopy(value)
+            notes.append(f"set {where}")
+        elif isinstance(target[key], dict) and isinstance(value, dict):
+            notes += merge(target[key], value, force, where)
+        elif isinstance(target[key], list) and isinstance(value, list):
+            for item in value:
+                if item not in target[key]:
+                    target[key].append(copy.deepcopy(item))
+                    notes.append(f"add to {where}: {json.dumps(item)}")
+        elif target[key] != value:
+            if force:
+                target[key] = copy.deepcopy(value)
+                notes.append(f"overwrite {where}")
+            else:
+                print(f"  ! {where} already set to {json.dumps(target[key])}; "
+                      f"keeping it (use --force to overwrite)")
+    return notes
+
+
+def install_files(name, bundle, claude_dir, dry_run, force):
+    for src_rel, dest_rel in bundle.get("files", {}).items():
+        src = BUNDLES / name / src_rel
+        dest = claude_dir / dest_rel
+        if not src.is_file():
+            sys.exit(f"error: bundle '{name}' lists missing file {src_rel}")
+        if dest.exists():
+            if filecmp.cmp(src, dest, shallow=False):
+                print(f"  = {dest} (unchanged)")
+                continue
+            if not force:
+                print(f"  ! {dest} exists and differs; keeping it "
+                      f"(use --force to overwrite)")
+                continue
+        print(f"  + {dest}")
+        if not dry_run:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+
+def main():
+    p = argparse.ArgumentParser(
+        description="Install Claude Code setup bundles into ~/.claude.")
+    p.add_argument("-b", "--bundle", action="append", default=[],
+                   metavar="NAME", help="bundle to install (repeatable)")
+    p.add_argument("-a", "--all", action="store_true",
+                   help="install every bundle")
+    p.add_argument("-l", "--list", action="store_true",
+                   help="list available bundles")
+    p.add_argument("-n", "--dry-run", action="store_true",
+                   help="show what would change without writing anything")
+    p.add_argument("-f", "--force", action="store_true",
+                   help="overwrite differing files and conflicting settings")
+    p.add_argument("--claude-dir", type=Path,
+                   default=Path(os.environ.get("CLAUDE_CONFIG_DIR")
+                                or Path.home() / ".claude"),
+                   help="target directory (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+    args = p.parse_args()
+
+    bundles = load_bundles()
+
+    if args.list:
+        width = max(map(len, bundles), default=0)
+        for name, bundle in bundles.items():
+            print(f"{name:<{width}}  {bundle.get('description', '')}")
+        return
+
+    selected = list(bundles) if args.all else args.bundle
+    if not selected:
+        p.error("nothing to install: pass --bundle NAME, --all, or --list")
+    unknown = [n for n in selected if n not in bundles]
+    if unknown:
+        sys.exit(f"error: unknown bundle(s): {', '.join(unknown)}\n"
+                 f"available: {', '.join(bundles)}")
+
+    claude_dir = args.claude_dir.expanduser().resolve()
+    settings_path = claude_dir / "settings.json"
+    settings = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except json.JSONDecodeError as e:
+            sys.exit(f"error: {settings_path} is not valid JSON ({e}); "
+                     f"fix it first, nothing was changed")
+    original = copy.deepcopy(settings)
+
+    for name in dict.fromkeys(selected):
+        bundle = bundles[name]
+        print(f"[{name}]")
+        install_files(name, bundle, claude_dir, args.dry_run, args.force)
+        fragment = substitute(bundle.get("settings", {}), display_dir(claude_dir))
+        notes = merge(settings, fragment, args.force)
+        for note in notes:
+            print(f"  + settings.json: {note}")
+        if not notes:
+            print("  = settings.json (nothing to add)")
+
+    if settings != original and not args.dry_run:
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        if settings_path.exists():
+            backup = settings_path.with_name("settings.json.bak")
+            shutil.copy2(settings_path, backup)
+            print(f"backed up previous settings to {backup}")
+        tmp = settings_path.with_name("settings.json.tmp")
+        tmp.write_text(json.dumps(settings, indent=2) + "\n")
+        tmp.replace(settings_path)
+
+    print("dry run: nothing written" if args.dry_run
+          else "done. Restart Claude Code sessions to pick up the changes.")
+
+
+if __name__ == "__main__":
+    main()

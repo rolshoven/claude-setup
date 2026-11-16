@@ -1,0 +1,28 @@
+{
+  "description": "Block Claude from reading .env files (deny rules + PreToolUse hook)",
+  "files": {
+    "hooks/protect-env.py": "hooks/protect-env.py"
+  },
+  "settings": {
+    "permissions": {
+      "deny": [
+        "Read(./.env)",
+        "Read(*.env)"
+      ]
+    },
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": "Read|Grep",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 {{CLAUDE_DIR}}/hooks/protect-env.py",
+              "timeout": 10
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
