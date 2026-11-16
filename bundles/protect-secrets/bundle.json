@@ -1,12 +1,15 @@
 {
-  "description": "Block reading secrets: .env files (via protect-env), private keys (*.pem, *.key) and ~/.ssh",
+  "description": "Block reading secrets: .env files (via protect-env), private keys, ~/.ssh and ~/.git-credentials",
   "includes": ["protect-env"],
   "settings": {
     "permissions": {
       "deny": [
         "Read(*.pem)",
         "Read(*.key)",
-        "Read(~/.ssh/**)"
+        "Read(~/.ssh/**)",
+        "Read(id_rsa*)",
+        "Read(id_ed25519*)",
+        "Read(~/.git-credentials)"
       ]
     }
   }

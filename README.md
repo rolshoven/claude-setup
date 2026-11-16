@@ -34,8 +34,8 @@ and can be changed with `--claude-dir`.
 
 | Bundle | What it does |
 | --- | --- |
-| `protect-env` | Deny rules for `.env` files plus a `PreToolUse` hook on `Read`/`Grep` that blocks any `.env*` file except `.env.example` / `.sample` / `.template`. |
-| `protect-secrets` | Everything in `protect-env`, plus deny rules for `*.pem`, `*.key` and `~/.ssh/**`. |
+| `protect-env` | Deny rules for `*.env` and the common `.env.*` variants (`.env.local`, `.env.production`, ...) plus a `PreToolUse` hook on `Read`/`Grep` that blocks any `.env*` file except `.env.example` / `.sample` / `.template`. |
+| `protect-secrets` | Everything in `protect-env`, plus deny rules for `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `~/.ssh/**` and `~/.git-credentials`. |
 
 ## Adding a bundle
 
